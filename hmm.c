@@ -4,83 +4,54 @@ int sequencesSetBufferSize(SequencesSet set) {
     int i;
     int size = 1; /** sequences count*/
     for (i = 0; i < set.count; i++) {
-        size += set.sequence[i].length + 1; /** sequence length + data */
+        size += set.sequence[i].length + 1; /** sequence length + data length*/
     }
     return size;
 }
 
 void sequencesSetToBuffer(SequencesSet set, int buffer[]) {
-    int i, *runner = buffer;
-    *runner = set.count;
-    runner++;
+    int i, *lengthRunner = buffer + 1, *dataRunner = buffer + set.count + 1;
+    buffer[0] = set.count;
     for (i = 0; i < set.count; i++) {
-        *runner = set.sequence[i].length;
-        runner++;
-    }
-    for (i = 0; i < set.count; i++) {
-        memcpy(runner, set.sequence[i].data, set.sequence[i].length * sizeof(set.sequence[i].data[0]));
-        runner += set.sequence[i].length;
+        *lengthRunner = set.sequence[i].length;
+        lengthRunner++;
+
+        memcpy(dataRunner, set.sequence[i].data, set.sequence[i].length * sizeof(int));
+        dataRunner += set.sequence[i].length;
     }
 }
 
 SequencesSet sequencesSetFromBuffer(int buffer[]) {
-    int i, *runner = buffer + buffer[0] + 1;
-    SequencesSet set; // = newSequencesSet(buffer[0], buffer + 1);
+    int i, *lengthRunner = buffer + 1, *dataRunner = buffer + buffer[0] + 1;
+    SequencesSet set;
     set.count = buffer[0];
-
     for (i = 0; i < set.count; i++) {
-        memcpy(set.sequence[i].data, runner, set.sequence[i].length * sizeof(runner[0]));
-        runner += set.sequence[i].length;
+        set.sequence[i].length = *lengthRunner;
+        lengthRunner++;
+
+        memcpy(set.sequence[i].data, dataRunner, set.sequence[i].length * sizeof(int));
+        dataRunner += set.sequence[i].length;
     }
     return set;
 }
 
-
 void sequencesSetSplit(SequencesSet set, int subsetsCount, SequencesSet subsets[]) {
-    int i, chunkSize = set.count / subsetsCount, remainder = set.count % subsetsCount;
+    int i, j, chunkSize = set.count / subsetsCount, remainder = set.count % subsetsCount;
+    int currentSequenceIndex = 0;
     for (i = 0; i < subsetsCount; ++i) {
-        subsets[i].count = chunkSize;
+        SequencesSet currentSubset = subsets[i];
+        currentSubset.count = chunkSize;
         if (remainder > 0) {
-            subsets[i].count++;
+            currentSubset.count++;
             remainder--;
         }
-        if (i == 0) subsets[i].sequence = set.sequence;
-        else subsets[i].sequence = subsets[i - 1].sequence + subsets[i - 1].count;
+        for (j = 0; j < currentSubset.count; j++) {
+            Sequence currentSequence = set.sequence[currentSequenceIndex];
+            currentSubset.sequence[j].length = currentSequence.length;
+            memcpy(currentSubset.sequence[j].data, currentSequence.data, currentSequence.length * sizeof(int));
+            currentSequenceIndex++;
+        }
     }
-}
-
-MarkovChain newMarkovChain(int length) {
-    MarkovChain result;
-    result.length = length;
-    result.state = (int *) malloc(length * sizeof(int));
-    result.observation = (int *) malloc(length * sizeof(int));
-    return result;
-}
-
-void freeMarkovChain(MarkovChain chain) {
-    free(chain.state);
-    free(chain.observation);
-    chain.length = 0;
-}
-
-MarkovChainsSet newMarkovChainsSet(int count, int lengths[]) {
-    MarkovChainsSet result;
-    result.count = count;
-    result.chain = (MarkovChain *) malloc(count * sizeof(MarkovChain));
-    int i;
-    for (i = 0; i < count; ++i) {
-        result.chain[i] = newMarkovChain(lengths[i]);
-    }
-    return result;
-}
-
-void freeMarkovChainsSet(MarkovChainsSet chainsSet) {
-    int i;
-    for (i = 0; i < chainsSet.count; ++i) {
-        freeMarkovChain(chainsSet.chain[i]);
-    }
-    free(chainsSet.chain);
-    chainsSet.count = 0;
 }
 
 Hmm hmmFromMarkovChainSet(MarkovChainsSet chainsSet, double hmmInitConstant) {
@@ -90,11 +61,13 @@ Hmm hmmFromMarkovChainSet(MarkovChainsSet chainsSet, double hmmInitConstant) {
     /** Computing PI the numbers of states and symbols*/
     for (i = 0; i < chainsSet.count; ++i) {
         for (j = 0; j < chainsSet.chain[i].length; ++j) {
-            if (chainsSet.chain[i].state[j] > statesCount) statesCount = chainsSet.chain[i].state[j];
-            if (chainsSet.chain[i].observation[j] > symbolsCount) statesCount = chainsSet.chain[i].observation[j];
+            if (chainsSet.chain[i].state[j] > statesCount) statesCount = chainsSet.chain[i].state[j] + 1; // +1 because states are 0-indexed
+            if (chainsSet.chain[i].observation[j] > symbolsCount) symbolsCount = chainsSet.chain[i].observation[j] + 1;
         }
     }
-    Hmm model = newHmm(statesCount, symbolsCount);
+    Hmm model;
+    model.statesCount = statesCount;
+    model.symbolsCount = symbolsCount;
 
     double start_i, transit_i, transit_ij, observation_i, observation_ij, lineSum, remainder;
 
@@ -160,7 +133,10 @@ Hmm hmmFromMarkovChainSet(MarkovChainsSet chainsSet, double hmmInitConstant) {
 }
 
 Hmm hmmClone(Hmm orig) {
-    Hmm result = newHmm(orig.statesCount, orig.symbolsCount);
+    Hmm result;
+    result.statesCount = orig.statesCount;
+    result.symbolsCount = orig.symbolsCount;
+
     int i;
     for (i = 0; i < orig.statesCount; i++) {
         memcpy(result.A[i], orig.A[i], orig.statesCount * sizeof(orig.A[i][0]));
@@ -228,6 +204,7 @@ void computeStationaryDistribution(int size, double *matrix[], double phi[]) {
             }
         }
 
+        // check if phi is equal to the first row of the last result
         count = 0;
         for (i = 0; i < size; ++i) {
             phi[i] = 0.0;
@@ -311,7 +288,7 @@ double hmmSahraeianSimilarity(Hmm model1, Hmm model2) {
     return 0.5 * (rowsGiniIndexSum / QRows + columnsGiniIndexSum / QColumns) * 100;
 }
 
-double Forward(Hmm model, Sequence observation, long double **alpha) {
+double Forward(Hmm model, Sequence observation, long double *alpha[]) {
     int i, j, t;
     long double proba = 0.0;
     for (i = 0; i < model.statesCount; i++) {
@@ -332,7 +309,7 @@ double Forward(Hmm model, Sequence observation, long double **alpha) {
     return (double) proba;
 }
 
-void Backward(Hmm model, Sequence observation, long double **beta) {
+void Backward(Hmm model, Sequence observation, long double *beta[]) {
     int i, j, t;
     for (i = 0; i < model.statesCount; i++) {
         beta[observation.length - 1][i] = 1;
@@ -348,7 +325,7 @@ void Backward(Hmm model, Sequence observation, long double **beta) {
 
 }
 
-void Gamma(Hmm model, Sequence observation, long double **alpha, long double **beta, long double **gamma, double proba) {
+void Gamma(Hmm model, Sequence observation, long double *alpha[], long double *beta[], long double *gamma[], double proba) {
     int t, j;
     for (t = 0; t < observation.length; t++) {
         for (j = 0; j < model.statesCount; j++) {
@@ -357,7 +334,7 @@ void Gamma(Hmm model, Sequence observation, long double **alpha, long double **b
     }
 }
 
-void Xi(Hmm model, Sequence observation, long double **alpha, long double **beta, long double ***xi, double proba) {
+void Xi(Hmm model, Sequence observation, long double *alpha[], long double *beta[], long double *xi[observation.length][model.statesCount], double proba) {
     int i, j, t;
     for (t = 0; t < observation.length - 1; t++) {
         for (i = 0; i < model.statesCount; i++) {
@@ -366,44 +343,6 @@ void Xi(Hmm model, Sequence observation, long double **alpha, long double **beta
             }
             xi[t][i][j] /= (proba + DBL_MIN);
         }
-    }
-}
-
-void mallocAlphaBetaGammaXi(Hmm model, SequencesSet observations, long double **alpha[], long double **beta[], long double **gamma[], long double ***xi[]) {
-    int i, j, k;
-    for (k = 0; k < observations.count; ++k) {
-        alpha[k] = (long double **) malloc(observations.sequence[k].length * sizeof(long double *));
-        beta[k] = (long double **) malloc(observations.sequence[k].length * sizeof(long double *));
-        gamma[k] = (long double **) malloc(observations.sequence[k].length * sizeof(long double *));
-        xi[k] = (long double ***) malloc(observations.sequence[k].length * sizeof(long double **));
-        for (i = 0; i < observations.sequence[k].length; ++i) {
-            alpha[k][i] = (long double *) malloc(model.statesCount * sizeof(long double));
-            beta[k][i] = (long double *) malloc(model.statesCount * sizeof(long double));
-            gamma[k][i] = (long double *) malloc(model.statesCount * sizeof(long double));
-            xi[k][i] = (long double **) malloc(model.statesCount * sizeof(long double *));
-            for (j = 0; j < model.statesCount; ++j) {
-                xi[k][i][j] = (long double *) malloc(model.statesCount * sizeof(long double));
-            }
-        }
-    }
-}
-
-void freeAlphaBetaGammaXi(Hmm model, SequencesSet observations, long double **alpha[], long double **beta[], long double **gamma[], long double ***xi[]) {
-    int i, j, k;
-    for (k = 0; k < observations.count; ++k) {
-        for (i = 0; i < observations.sequence[k].length; ++i) {
-            for (j = 0; j < model.statesCount; ++j) {
-                free(xi[k][i][j]);
-            }
-            free(alpha[k][i]);
-            free(beta[k][i]);
-            free(gamma[k][i]);
-            free(xi[k][i]);
-        }
-        free(alpha[k]);
-        free(beta[k]);
-        free(gamma[k]);
-        free(xi[k]);
     }
 }
 
@@ -416,7 +355,7 @@ Hmm standardBaumWelch(Hmm model, SequencesSet observations, int maxIterations, d
             numA[model.statesCount][model.statesCount], numB[model.statesCount][model.symbolsCount];
 
     /** Allocating memory for alpha, beta, gamma and xi */
-    mallocAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
+//    mallocAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
 
     /** The model is initially considered trained */
     Hmm trainedModel = hmmClone(model);
@@ -486,8 +425,6 @@ Hmm standardBaumWelch(Hmm model, SequencesSet observations, int maxIterations, d
         iteration++;
     } while (iteration < maxIterations && deltaProba > probaThreshold);
 
-    /** Deallocating the memory previously allocated to alpha, beta, gamma and xi */
-    freeAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
     return trainedModel;
 }
 

@@ -66,7 +66,7 @@ int sequencesSetBufferSize(SequencesSet set);
 
 /**
  * Serialize a sequences set into a buffer. The first element of the buffer is
- * the number of the sequences. It's followed by the sequences lengths and
+ * the number of sequences. It's followed by the sequences lengths and
  * the sequences data are at the end in the same order as their lengths.
  * @param set : The set to be serialized
  * @param buffer : The buffer where to store the sequences set
@@ -82,7 +82,7 @@ SequencesSet sequencesSetFromBuffer(int buffer[]);
 
 
 /**
- * Split a large sequences st into smaller ones
+ * Split a large sequences set into smaller ones
  * @param set : The given sequences set
  * @param subsetsCount : The expected number of subsets.
  * @param subsets : An array containing the resulting subsets.
