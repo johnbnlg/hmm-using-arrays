@@ -1,6 +1,7 @@
 #include "hmm_mpi.h"
 
 void mpiSendHmm(Hmm model, int dest, int tag, MPI_Comm com) {
+    // 2 + model.statesCount * model.statesCount + model.symbolsCount * model.statesCount + model.statesCount + model.statesCount
     int bufferSize = (2 + model.statesCount + model.symbolsCount) * model.statesCount + 2;
     double buffer[bufferSize];
     hmmToBuffer(model, buffer);
@@ -14,7 +15,9 @@ Hmm mpiReceiveHmm(int source, int tag, MPI_Comm com) {
     MPI_Recv(&bufferSize, 1, MPI_INT, source, tag, com, &status);
     double buffer[bufferSize];
     MPI_Recv(buffer, bufferSize, MPI_DOUBLE, source, tag, com, &status);
-    Hmm model = newHmm((int) buffer[0], (int) buffer[1]);
+    Hmm model;
+    model.statesCount = (int) buffer[0];
+    model.symbolsCount = (int) buffer[1];
     hmmFromBuffer(model, buffer);
     return model;
 }
@@ -36,8 +39,7 @@ SequencesSet mpiReceiveSequencesSet(int source, int tag, MPI_Comm com) {
     return sequencesSetFromBuffer(buffer);
 }
 
-Hmm
-mpiStandardBaumWelchMaster(Hmm model, SequencesSet allObservations, int maxIterations, double probaThreshold, MPI_Comm com) {
+Hmm mpiStandardBaumWelchMaster(Hmm model, SequencesSet allObservations, int maxIterations, double probaThreshold, MPI_Comm com) {
     int i, k, j, t, p, procCount, goToNextIteration;
     int iteration = 0;
     MPI_Status status;
@@ -55,13 +57,17 @@ mpiStandardBaumWelchMaster(Hmm model, SequencesSet allObservations, int maxItera
     SequencesSet observations = subsets[0];
     int bufferSize = model.statesCount * (3 + model.statesCount + model.symbolsCount);
     long double buffer[bufferSize];
+
     double proba, deltaProba, sequenceProba[observations.count];
-    long double **alpha[observations.count], **beta[observations.count], **gamma[observations.count], ***xi[observations.count];
+
+    int maxSeqLength = getMaxSequenceLength(observations);
+    long double alpha[observations.count][maxSeqLength][model.statesCount];
+    long double beta[observations.count][maxSeqLength][model.statesCount];
+    long double gamma[observations.count][maxSeqLength][model.statesCount];
+    long double xi[observations.count][maxSeqLength][model.statesCount][model.statesCount];
+
     long double numPI[model.statesCount], denA[model.statesCount], denB[model.statesCount],
             numA[model.statesCount][model.statesCount], numB[model.statesCount][model.symbolsCount];
-
-    /** Allocating memory for alpha, beta, gamma and xi */
-    mallocAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
 
     /** The model is initially considered trained */
     Hmm trainedModel = hmmClone(model);
@@ -182,8 +188,6 @@ mpiStandardBaumWelchMaster(Hmm model, SequencesSet allObservations, int maxItera
         }
     } while (goToNextIteration);
 
-    /** Deallocating the memory previously allocated to alpha, beta, gamma and xi */
-    freeAlphaBetaGammaXi(trainedModel, observations, alpha, beta, gamma, xi);
     return trainedModel;
 }
 
@@ -198,12 +202,15 @@ void mpiStandardBaumWelchSlave(MPI_Comm com) {
     int bufferSize = trainedModel.statesCount * (3 + trainedModel.statesCount + trainedModel.symbolsCount);
     long double buffer[bufferSize];
     double proba, sequenceProba[observations.count];
-    long double **alpha[observations.count], **beta[observations.count], **gamma[observations.count], ***xi[observations.count];
+
+    int maxSeqLength = getMaxSequenceLength(observations);
+    long double alpha[observations.count][maxSeqLength][trainedModel.statesCount];
+    long double beta[observations.count][maxSeqLength][trainedModel.statesCount];
+    long double gamma[observations.count][maxSeqLength][trainedModel.statesCount];
+    long double xi[observations.count][maxSeqLength][trainedModel.statesCount][trainedModel.statesCount];
+
     long double numPI[trainedModel.statesCount], denA[trainedModel.statesCount], denB[trainedModel.statesCount],
             numA[trainedModel.statesCount][trainedModel.statesCount], numB[trainedModel.statesCount][trainedModel.symbolsCount];
-
-    /** Allocating memory for alpha, beta, gamma and xi */
-    mallocAlphaBetaGammaXi(trainedModel, observations, alpha, beta, gamma, xi);
 
     /** Evaluating the global and partial observation probabilities according to the initial model */
     proba = 1.0;
@@ -260,8 +267,6 @@ void mpiStandardBaumWelchSlave(MPI_Comm com) {
         }
         MPI_Send(buffer, bufferSize, MPI_LONG_DOUBLE, 0, 0, com);
 
-        /** Receiving the newly updated model */
-        freeHmm(trainedModel);
         trainedModel = mpiReceiveHmm(0, 0, com);
 
         proba = 1.0;
@@ -276,9 +281,6 @@ void mpiStandardBaumWelchSlave(MPI_Comm com) {
         /** Receiving the signal whether to go or not to the next iteration from the master */
         MPI_Recv(&goToNextIteration, 1, MPI_INT, 0, 0, com, &status);
     } while (goToNextIteration);
-
-    /** Deallocating the memory previously allocated to alpha, beta, gamma and xi */
-    freeAlphaBetaGammaXi(trainedModel, observations, alpha, beta, gamma, xi);
 }
 
 Hmm mpiPercentageBaumWelchMaster(Hmm model, SequencesSet allObservations, int maxIterations, double probaThreshold, double percentageThreshold, MPI_Comm com) {
@@ -301,12 +303,15 @@ Hmm mpiPercentageBaumWelchMaster(Hmm model, SequencesSet allObservations, int ma
     int bufferSize = model.statesCount * (3 + model.statesCount + model.symbolsCount);
     long double buffer[bufferSize];
     double percentage, sequenceProba[observations.count];
-    long double **alpha[observations.count], **beta[observations.count], **gamma[observations.count], ***xi[observations.count];
+
+    int maxSeqLength = getMaxSequenceLength(observations);
+    long double alpha[observations.count][maxSeqLength][model.statesCount];
+    long double beta[observations.count][maxSeqLength][model.statesCount];
+    long double gamma[observations.count][maxSeqLength][model.statesCount];
+    long double xi[observations.count][maxSeqLength][model.statesCount][model.statesCount];
+
     long double numPI[model.statesCount], denA[model.statesCount], denB[model.statesCount],
             numA[model.statesCount][model.statesCount], numB[model.statesCount][model.symbolsCount];
-
-    /** Allocating memory for alpha, beta, gamma and xi */
-    mallocAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
 
     /** The model is initially considered trained */
     Hmm trainedModel = hmmClone(model);
@@ -418,8 +423,6 @@ Hmm mpiPercentageBaumWelchMaster(Hmm model, SequencesSet allObservations, int ma
         }
     } while (goToNextIteration);
 
-    /** Deallocating the memory previously allocated to alpha, beta, gamma and xi */
-    freeAlphaBetaGammaXi(trainedModel, observations, alpha, beta, gamma, xi);
     return trainedModel;
 }
 
@@ -434,13 +437,16 @@ void mpiPercentageBaumWelchSlave(MPI_Comm com) {
 
     int bufferSize = trainedModel.statesCount * (3 + trainedModel.statesCount + trainedModel.symbolsCount);
     long double buffer[bufferSize];
-    double proba, sequenceProba[observations.count];
-    long double **alpha[observations.count], **beta[observations.count], **gamma[observations.count], ***xi[observations.count];
+    double sequenceProba[observations.count];
+
+    int maxSeqLength = getMaxSequenceLength(observations);
+    long double alpha[observations.count][maxSeqLength][trainedModel.statesCount];
+    long double beta[observations.count][maxSeqLength][trainedModel.statesCount];
+    long double gamma[observations.count][maxSeqLength][trainedModel.statesCount];
+    long double xi[observations.count][maxSeqLength][trainedModel.statesCount][trainedModel.statesCount];
+
     long double numPI[trainedModel.statesCount], denA[trainedModel.statesCount], denB[trainedModel.statesCount],
             numA[trainedModel.statesCount][trainedModel.statesCount], numB[trainedModel.statesCount][trainedModel.symbolsCount];
-
-    /** Allocating memory for alpha, beta, gamma and xi */
-    mallocAlphaBetaGammaXi(trainedModel, observations, alpha, beta, gamma, xi);
 
     /** Evaluating observation probabilities according to the initial model */
     for (k = 0; k < observations.count; ++k) {
@@ -495,8 +501,6 @@ void mpiPercentageBaumWelchSlave(MPI_Comm com) {
         }
         MPI_Send(buffer, bufferSize, MPI_LONG_DOUBLE, 0, 0, com);
 
-        /** Receiving the newly updated model from the master*/
-        freeHmm(trainedModel);
         trainedModel = mpiReceiveHmm(0, 0, com);
 
         /** Evaluating observation probabilities and the number of sequences satisfying the probability threshold according to the newly updated model */
@@ -516,8 +520,6 @@ void mpiPercentageBaumWelchSlave(MPI_Comm com) {
         MPI_Recv(&goToNextIteration, 1, MPI_INT, 0, 0, com, &status);
     } while (goToNextIteration);
 
-    /** Deallocating the memory previously allocated to alpha, beta, gamma and xi */
-    freeAlphaBetaGammaXi(trainedModel, observations, alpha, beta, gamma, xi);
 }
 
 
