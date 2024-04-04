@@ -1,5 +1,13 @@
 #include "hmm.h"
 
+int getMaxSequenceLength(SequencesSet set){
+    int i, maxLength = 0;
+    for (i = 0; i < set.count; i++) {
+        maxLength = set.sequence[i].length > maxLength ? set.sequence[i].length : maxLength;
+    }
+    return maxLength;
+}
+
 int sequencesSetBufferSize(SequencesSet set) {
     int i;
     int size = 1; /** sequences count*/
@@ -288,7 +296,7 @@ double hmmSahraeianSimilarity(Hmm model1, Hmm model2) {
     return 0.5 * (rowsGiniIndexSum / QRows + columnsGiniIndexSum / QColumns) * 100;
 }
 
-double Forward(Hmm model, Sequence observation, long double *alpha[]) {
+double Forward(Hmm model, Sequence observation, long double alpha[][model.statesCount]) {
     int i, j, t;
     long double proba = 0.0;
     for (i = 0; i < model.statesCount; i++) {
@@ -309,7 +317,7 @@ double Forward(Hmm model, Sequence observation, long double *alpha[]) {
     return (double) proba;
 }
 
-void Backward(Hmm model, Sequence observation, long double *beta[]) {
+void Backward(Hmm model, Sequence observation, long double beta[][model.statesCount]) {
     int i, j, t;
     for (i = 0; i < model.statesCount; i++) {
         beta[observation.length - 1][i] = 1;
@@ -325,7 +333,9 @@ void Backward(Hmm model, Sequence observation, long double *beta[]) {
 
 }
 
-void Gamma(Hmm model, Sequence observation, long double *alpha[], long double *beta[], long double *gamma[], double proba) {
+void Gamma(Hmm model, Sequence observation, long double alpha[][model.statesCount], long double beta[][model.statesCount],
+           long double gamma[][model.statesCount], double proba) {
+
     int t, j;
     for (t = 0; t < observation.length; t++) {
         for (j = 0; j < model.statesCount; j++) {
@@ -334,7 +344,10 @@ void Gamma(Hmm model, Sequence observation, long double *alpha[], long double *b
     }
 }
 
-void Xi(Hmm model, Sequence observation, long double *alpha[], long double *beta[], long double *xi[observation.length][model.statesCount], double proba) {
+void
+Xi(Hmm model, Sequence observation, long double alpha[][model.statesCount], long double beta[][model.statesCount],
+   long double xi[][model.statesCount][model.statesCount], double proba) {
+
     int i, j, t;
     for (t = 0; t < observation.length - 1; t++) {
         for (i = 0; i < model.statesCount; i++) {
@@ -350,12 +363,15 @@ Hmm standardBaumWelch(Hmm model, SequencesSet observations, int maxIterations, d
     int i, k, j, t;
     int iteration = 0;
     double proba, deltaProba, sequenceProba[observations.count];
-    long double **alpha[observations.count], **beta[observations.count], **gamma[observations.count], ***xi[observations.count];
+    int maxSeqLength = getMaxSequenceLength(observations);
+
+    long double alpha[observations.count][maxSeqLength][model.statesCount];
+    long double beta[observations.count][maxSeqLength][model.statesCount];
+    long double gamma[observations.count][maxSeqLength][model.statesCount];
+    long double xi[observations.count][maxSeqLength][model.statesCount][model.statesCount];
+
     long double numPI[model.statesCount], denA[model.statesCount], denB[model.statesCount],
             numA[model.statesCount][model.statesCount], numB[model.statesCount][model.symbolsCount];
-
-    /** Allocating memory for alpha, beta, gamma and xi */
-//    mallocAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
 
     /** The model is initially considered trained */
     Hmm trainedModel = hmmClone(model);
@@ -432,12 +448,15 @@ Hmm percentageBaumWelch(Hmm model, SequencesSet observations, int maxIterations,
     int i, k, j, t;
     int iteration = 0;
     double percentage, sequenceProba[observations.count];
-    long double **alpha[observations.count], **beta[observations.count], **gamma[observations.count], ***xi[observations.count];
+    int maxSeqLength = getMaxSequenceLength(observations);
+
+    long double alpha[observations.count][maxSeqLength][model.statesCount];
+    long double beta[observations.count][maxSeqLength][model.statesCount];
+    long double gamma[observations.count][maxSeqLength][model.statesCount];
+    long double xi[observations.count][maxSeqLength][model.statesCount][model.statesCount];
+
     long double numPI[model.statesCount], denA[model.statesCount], denB[model.statesCount],
             numA[model.statesCount][model.statesCount], numB[model.statesCount][model.symbolsCount];
-
-    /** Allocating memory for alpha, beta, gamma and xi */
-    mallocAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
 
     /** The model is initially considered trained */
     Hmm trainedModel = hmmClone(model);
@@ -502,8 +521,6 @@ Hmm percentageBaumWelch(Hmm model, SequencesSet observations, int maxIterations,
         iteration++;
     } while (iteration < maxIterations && percentage < percentageThreshold);
 
-    /** Deallocating the memory previously allocated to alpha, beta, gamma and xi */
-    freeAlphaBetaGammaXi(model, observations, alpha, beta, gamma, xi);
     return trainedModel;
 }
 

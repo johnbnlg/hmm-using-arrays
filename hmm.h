@@ -58,6 +58,13 @@ typedef struct MarkovChainsSet {
 } MarkovChainsSet;
 
 /**
+ * Get the length of the longest sequence in the sequences set
+ * @param set : The considered sequences set
+ * @return : The length of the longest sequence in the considered sequences set
+ */
+int getMaxSequenceLength(SequencesSet set);
+
+/**
  * Compute the buffer size to store a sequences set.
  * @param set : The whose buffer size is computed
  * @return : The buffer size of the given set
@@ -161,7 +168,7 @@ double hmmSahraeianSimilarity(Hmm model1, Hmm model2);
   * @param alpha: The observation.length * model.statesCount calculated matrix
   * @return : Probability of observing the given sequence according the model
   */
-double Forward(Hmm model, Sequence observation, long double *alpha[]);
+double Forward(Hmm model, Sequence observation, long double alpha[][model.statesCount]);
 
 /**
   * Computation of the beta matrix (of the Forward Backward procedure) for the
@@ -172,7 +179,7 @@ double Forward(Hmm model, Sequence observation, long double *alpha[]);
   * @param observation: observations sequence
   * @param beta: The observation.length * model.statesCount calculated matrix
   */
-void Backward(Hmm model, Sequence observation, long double *beta[]);
+void Backward(Hmm model, Sequence observation, long double beta[][model.statesCount]);
 
 /**
   * Calculation of the Gamma parameter to be used for the re-estimation of the model
@@ -184,7 +191,8 @@ void Backward(Hmm model, Sequence observation, long double *beta[]);
   * @param gamma: The calculated matrix
   * @param proba: Probability of observing the considered sequence knowing the given model
   */
-void Gamma(Hmm model, Sequence observation, long double *alpha[], long double *beta[], long double *gamma[], double proba);
+void Gamma(Hmm model, Sequence observation, long double alpha[][model.statesCount], long double beta[][model.statesCount],
+           long double gamma[][model.statesCount], double proba);
 
 /**
   * Calculation of the Xi parameter to be used for the re-estimation of the model
@@ -196,7 +204,9 @@ void Gamma(Hmm model, Sequence observation, long double *alpha[], long double *b
   * @param xi: The calculated matrix (observation.length * model.statesCount * model.statesCount)
   * @param proba: Probability of observing the considered sequence knowing the given model
   */
-void Xi(Hmm model, Sequence observation, long double *alpha[], long double *beta[], long double *xi[observation.length][model.statesCount], double proba);
+void
+Xi(Hmm model, Sequence observation, long double alpha[][model.statesCount], long double beta[][model.statesCount],
+   long double xi[][model.statesCount][model.statesCount], double proba);
 
 /**
   * Sequential training of a given model for the recognition of a set of observation sequences
